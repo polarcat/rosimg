@@ -4,7 +4,7 @@ Simple image subscriber and viewer for ROS2 (tested in Foxy).
 
 ### Limitations
 
-Currently it only works with RGB JPEG compression. Other image formats support will be added when the need arises.
+Currently viewer only works with RGB raw and compressed images (jpg, png). Other image formats like theora or depth might be added in the future when the need arises.
 
 ### Dependencies
 
@@ -26,9 +26,9 @@ Currently it only works with RGB JPEG compression. Other image formats support w
 
 ### Run (w/o installation)
 
- * Example for /camera0/compressed topic:
+ * Example for topic with uncompressed image:
 
-        ~/build> ./image-viewer /camera0/compressed
+        ~/build> ./image-viewer /image_raw
 
 ### Install (optional)
 
@@ -42,6 +42,6 @@ Currently it only works with RGB JPEG compression. Other image formats support w
 
 ### Usage
 
- * Example for /camera0/compressed topic:
+ * Example for topic with compressed image:
 
-        ~/> image-viewer /camera0/compressed
+        ~/> ./image-viewer /image_raw/compressed
