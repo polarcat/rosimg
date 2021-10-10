@@ -121,6 +121,10 @@ struct image {
 };
 
 static struct image images_[2];
+static int fit_w_;
+static int fit_h_;
+static float ratio_ = 1.;
+static float rratio_ = 1.;
 
 #ifdef PRINT_FPS
 void calc_fps(struct context *ctx, struct image *img)
@@ -167,6 +171,8 @@ void ImageViewer::present_buffer(struct buffer *buf)
 		 buf->h);
 		return;
 	}
+	ratio_ = buf->w / (float) buf->h;
+	rratio_ = buf->h / (float) buf->w;
 
 	for (uint8_t i = 0; i < ARRAY_SIZE(images_); ++i) {
 		struct image *image = &images_[i];
@@ -249,6 +255,8 @@ static void key_cb(GLFWwindow *win, int key, int code, int action, int mods)
 {
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		glfwSetWindowShouldClose(win, GLFW_TRUE);
+	else if (key == GLFW_KEY_F && action == GLFW_PRESS)
+		glfwSetWindowSize(win, fit_w_, fit_h_);
 }
 
 static void error_cb(int err, const char *str)
@@ -467,6 +475,7 @@ int main(int argc, char *argv[])
 	glfwMakeContextCurrent(win);
 	gladLoadGL(glfwGetProcAddress);
 	glfwSwapInterval(1);
+	glClearColor(0, 0, 0, 1);
 
 	if (!make_prog(&ctx))
 		exit(1);
@@ -474,11 +483,21 @@ int main(int argc, char *argv[])
 	done = false;
 	ros = std::thread(ros_loop, topic, &done);
 
-	ctx.ratio = (float) w / h;
 	while (!glfwWindowShouldClose(win) && !done) {
 		/* lame way of tracking window resize */
 		glfwGetFramebufferSize(win, &w, &h);
-		glViewport(0, 0, h * ctx.ratio, h);
+
+		/* try to maintain original aspect ratio */
+		fit_w_ = h * ratio_;
+		if (fit_w_ <= w) {
+			fit_h_ = h;
+		} else {
+			fit_w_ = w;
+			fit_h_ = w * rratio_;
+		}
+
+		glViewport(0, 0, fit_w_, fit_h_);
+		glClear(GL_COLOR_BUFFER_BIT);
 		draw_image(&ctx);
 		glfwSwapBuffers(win);
 		glfwPollEvents();
