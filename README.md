@@ -16,7 +16,7 @@ Currently viewer only works with RGB raw and compressed images (jpg, png). Other
 
 ### Build
 
- * Install required dependecies
+ * Install required dependencies
  * Setup ROS2 environment (follow ROS2 guide)
  * Compile
 
