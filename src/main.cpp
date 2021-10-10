@@ -17,6 +17,7 @@
 #include <semaphore.h>
 
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/image.hpp"
 #include "sensor_msgs/msg/compressed_image.hpp"
 
 #ifndef WIN_WIDTH
@@ -42,12 +43,19 @@
 #define nop(...) ;
 
 using std::placeholders::_1;
-using image_t = sensor_msgs::msg::CompressedImage;
-using image_ptr = sensor_msgs::msg::CompressedImage::SharedPtr;
+using bitmap_t = sensor_msgs::msg::Image;
+using bitmap_ptr = sensor_msgs::msg::Image::SharedPtr;
 
-#define create_subscriber(topic) \
-	this->create_subscription<image_t>(topic, 10, \
-	 std::bind(&ImageViewer::topic_cb, this, _1))
+using compressed_t = sensor_msgs::msg::CompressedImage;
+using compressed_ptr = sensor_msgs::msg::CompressedImage::SharedPtr;
+
+#define create_bitmap_subscriber(topic) \
+	this->create_subscription<bitmap_t>(topic, 10, \
+	 std::bind(&ImageViewer::handle_bitmap, this, _1))
+
+#define create_compressed_subscriber(topic) \
+	this->create_subscription<compressed_t>(topic, 10, \
+	 std::bind(&ImageViewer::handle_compressed, this, _1))
 
 namespace {
 
@@ -114,6 +122,7 @@ struct image {
 
 static struct image images_[2];
 
+#ifdef PRINT_FPS
 void calc_fps(struct context *ctx, struct image *img)
 {
 	uint64_t ms1 = ctx->sec * 1000 + ctx->nsec * .000001;
@@ -123,6 +132,9 @@ void calc_fps(struct context *ctx, struct image *img)
 	ctx->nsec = img->nsec;
 	ii("fps %.1f", ctx->fps);
 }
+#else
+#define calc_fps(...) ;
+#endif
 
 } /* namespace */
 
@@ -132,26 +144,30 @@ public:
 	ImageViewer(const char *topic);
 	~ImageViewer();
 private:
-	void topic_cb(const image_ptr);
-	rclcpp::Subscription<image_t>::SharedPtr viewer_;
-	uint32_t counter_ = 0;
+	stbi_uc *handle_compressed2(const compressed_ptr, int *w, int *h);
+	void handle_bitmap(const bitmap_ptr);
+	rclcpp::Subscription<bitmap_t>::SharedPtr bitmap_;
+	void handle_compressed(const compressed_ptr);
+	rclcpp::Subscription<compressed_t>::SharedPtr compressed_;
+
+	struct buffer {
+		stbi_uc *data;
+		int w;
+		int h;
+		int sec;
+		uint32_t nsec;
+	};
+	void present_buffer(struct buffer *);
 };
 
-void ImageViewer::topic_cb(const image_ptr msg)
+void ImageViewer::present_buffer(struct buffer *buf)
 {
-	int w;
-	int h;
-	int n;
-	/* TODO: decompress into pre-allocated buffer */
-	stbi_uc *buf = stbi_load_from_memory(msg->data.data(), msg->data.size(),
-	 &w, &h, &n, 3);
-	nop("frame: %u, format: %s, buf: %p, wh(%d %d), planes: %d", ++counter_,
-	 msg->format.c_str(), buf, w, h, n);
-
-	if (n != 3) /* TODO: support other formats */
+	if (!buf->data || !buf->w || !buf->h) {
+		ee("invalid image buffer %p wh(%d %d)", buf->data, buf->w,
+		 buf->h);
 		return;
+	}
 
-	/* TODO: track frame drops; calc FPS */
 	for (uint8_t i = 0; i < ARRAY_SIZE(images_); ++i) {
 		struct image *image = &images_[i];
 		pthread_mutex_lock(&image->lock);
@@ -161,15 +177,60 @@ void ImageViewer::topic_cb(const image_ptr msg)
 		if (state != STATE_NONE) {
 			continue;
 		} else {
-			image->sec = msg->header.stamp.sec;
-			image->nsec = msg->header.stamp.nanosec;
 			image->id++;
-			image->data = buf;
-			image->w = w;
-			image->h = h;
+			image->sec = buf->sec;
+			image->nsec = buf->nsec;
+			image->data = buf->data;
+			image->w = buf->w;
+			image->h = buf->h;
 			image->state = STATE_READY;
 			break;
 		}
+	}
+}
+
+void ImageViewer::handle_bitmap(const bitmap_ptr msg)
+{
+	if (strcmp(msg->encoding.c_str(), "rgb8") != 0) {
+		ee("only RGB color scheme is supported");
+		return;
+	}
+
+	struct buffer buf = {
+		msg->data.data(),
+		(int) msg->width,
+		(int) msg->height,
+		msg->header.stamp.sec,
+		msg->header.stamp.nanosec,
+	};
+
+	/* TODO: cache pre-allocated buffer */
+	if (!(buf.data = (stbi_uc *) malloc(msg->data.size()))) {
+		ee("failed to allocate %zu bytes", msg->data.size());
+		return;
+	}
+
+	memcpy(buf.data, msg->data.data(), msg->data.size());
+	present_buffer(&buf);
+}
+
+void ImageViewer::handle_compressed(const compressed_ptr msg)
+{
+	int n;
+	struct buffer buf;
+	/* TODO: check if possible to decompress into pre-allocated buffer */
+	buf.data = stbi_load_from_memory(msg->data.data(), msg->data.size(),
+	 &buf.w, &buf.h, &n, 3);
+	buf.sec = msg->header.stamp.sec;
+	buf.nsec = msg->header.stamp.nanosec;
+
+	nop("format: %s, buf: %p, wh(%d %d), planes: %d", msg->format.c_str(),
+	 buf.data, buf.w, buf.h, n);
+
+	if (n != 3) { /* TODO: support other color schemes (maybe) */
+		ee("only RGB color scheme is supported");
+	} else {
+		present_buffer(&buf);
 	}
 }
 
@@ -180,7 +241,8 @@ ImageViewer::~ImageViewer()
 
 ImageViewer::ImageViewer(const char *topic): Node(NODE_TAG)
 {
-	viewer_ = create_subscriber(topic);
+	bitmap_ = create_bitmap_subscriber(topic);
+	compressed_ = create_compressed_subscriber(topic);
 }
 
 static void key_cb(GLFWwindow *win, int key, int code, int action, int mods)
@@ -340,6 +402,7 @@ static void draw_image(struct context *ctx)
 		 GL_RGB, GL_UNSIGNED_BYTE, image->data);
 		ctx->ratio = (float) image->w / image->h;
 		pthread_mutex_lock(&image->lock);
+#ifdef PRINT_FPS
 		int32_t diff = image->id - image->prev_id;
 		if (diff == 0) {
 			ww("repeat frame %u", image->id);
@@ -347,13 +410,12 @@ static void draw_image(struct context *ctx)
 			ctx->dropped_frames++;
 			ww("dropped %u frames", ctx->dropped_frames);
 		}
+#endif
 		image->prev_id = image->id;
 		free(image->data);
 		image->data = NULL;
 		image->state = STATE_NONE;
-#ifdef PRINT_FPS
 		calc_fps(ctx, image);
-#endif
 		pthread_mutex_unlock(&image->lock);
 	}
 
