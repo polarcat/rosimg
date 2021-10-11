@@ -8,15 +8,20 @@ Currently viewer only works with RGB raw and compressed images (jpg, png). Other
 
 ### Dependencies
 
+#### External
+
  - [ros2](https://github.com/ros2) for providing ROS2 environment
  - [glfw](https://github.com/glfw/glfw]) version 3 for windows management,
    graphics context etc.
+   
+#### Included
+   
  - [glad2](https://github.com/Dav1dde/glad) OpenGL loader.
  - [stb](https://github.com/nothings/stb) for image manipulation.
 
 ### Build
 
- * Install required dependencies
+ * Install external dependencies
  * Setup ROS2 environment (follow ROS2 guide)
  * Compile
 
