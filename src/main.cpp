@@ -218,6 +218,9 @@ void ImageViewer::handle_bitmap(const bitmap_ptr msg)
 
 	memcpy(buf.data, msg->data.data(), msg->data.size());
 	present_buffer(&buf);
+
+	if (compressed_.get()) /* do not need it anymore */
+		compressed_.reset();
 }
 
 void ImageViewer::handle_compressed(const compressed_ptr msg)
@@ -238,6 +241,9 @@ void ImageViewer::handle_compressed(const compressed_ptr msg)
 	} else {
 		present_buffer(&buf);
 	}
+
+	if (bitmap_.get()) /* do not need it anymore */
+		bitmap_.reset();
 }
 
 ImageViewer::~ImageViewer()
