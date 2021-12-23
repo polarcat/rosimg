@@ -42,6 +42,8 @@
 #define ee(...) RCLCPP_ERROR(rlog, __VA_ARGS__);
 #define nop(...) ;
 
+#define unused_arg(a) __attribute__((unused)) a
+
 using std::placeholders::_1;
 using bitmap_t = sensor_msgs::msg::Image;
 using bitmap_ptr = sensor_msgs::msg::Image::SharedPtr;
@@ -95,11 +97,11 @@ struct context {
 	GLuint tex;
 	GLint u_tex;
 	GLint a_pos;
-	uint32_t dropped_frames;
 	float ratio;
 	uint32_t sec;
 	uint32_t nsec;
 	float fps;
+	uint8_t print_fps:1;
 };
 
 enum {
@@ -126,19 +128,17 @@ static int fit_h_;
 static float ratio_ = 1.;
 static float rratio_ = 1.;
 
-#ifdef PRINT_FPS
-void calc_fps(struct context *ctx, struct image *img)
+void print_fps(struct context *ctx, struct image *img)
 {
 	uint64_t ms1 = ctx->sec * 1000 + ctx->nsec * .000001;
 	uint64_t ms2 = img->sec * 1000 + img->nsec * .000001;
-	ctx->fps = 1. / ((ms2 - ms1) * .001);
+	uint32_t diff = ms2 - ms1;
+	ctx->fps = 1. / (diff * .001);
 	ctx->sec = img->sec;
 	ctx->nsec = img->nsec;
-	ii("fps %.1f", ctx->fps);
+	printf("\033[Gfps \033[1;33m%u\033[0m diff %d ms\033[K",
+	 (uint8_t) ctx->fps, diff);
 }
-#else
-#define calc_fps(...) ;
-#endif
 
 } /* namespace */
 
@@ -148,19 +148,21 @@ public:
 	ImageViewer(const char *topic);
 	~ImageViewer();
 private:
-	stbi_uc *handle_compressed2(const compressed_ptr, int *w, int *h);
-	void handle_bitmap(const bitmap_ptr);
-	rclcpp::Subscription<bitmap_t>::SharedPtr bitmap_;
-	void handle_compressed(const compressed_ptr);
-	rclcpp::Subscription<compressed_t>::SharedPtr compressed_;
-
 	struct buffer {
 		stbi_uc *data;
+		size_t size;
 		int w;
 		int h;
 		int sec;
 		uint32_t nsec;
 	};
+
+	void present_rgb8(const bitmap_ptr);
+	void present_compressed(struct buffer *);
+	void handle_bitmap(const bitmap_ptr);
+	rclcpp::Subscription<bitmap_t>::SharedPtr bitmap_;
+	void handle_compressed(const compressed_ptr);
+	rclcpp::Subscription<compressed_t>::SharedPtr compressed_;
 	void present_buffer(struct buffer *);
 };
 
@@ -195,15 +197,28 @@ void ImageViewer::present_buffer(struct buffer *buf)
 	}
 }
 
-void ImageViewer::handle_bitmap(const bitmap_ptr msg)
+void ImageViewer::present_compressed(struct ImageViewer::buffer *buf)
 {
-	if (strcmp(msg->encoding.c_str(), "rgb8") != 0) {
-		ee("only RGB color scheme is supported");
-		return;
-	}
+	int n;
+	/* TODO: check if possible to decompress into pre-allocated buffer */
+	buf->data = stbi_load_from_memory(buf->data, buf->size, &buf->w,
+	 &buf->h, &n, 3);
 
+	nop("format: %s, buf: %p, wh(%d %d), planes: %d", msg->encoding.c_str(),
+	 buf->data, buf->w, buf->h, n);
+
+	if (n != 3) { /* TODO: support other color schemes (maybe) */
+		ee("only RGB color scheme is supported");
+	} else {
+		present_buffer(buf);
+	}
+}
+
+void ImageViewer::present_rgb8(const bitmap_ptr msg)
+{
 	struct buffer buf = {
 		msg->data.data(),
+		msg->data.size(),
 		(int) msg->width,
 		(int) msg->height,
 		msg->header.stamp.sec,
@@ -211,13 +226,33 @@ void ImageViewer::handle_bitmap(const bitmap_ptr msg)
 	};
 
 	/* TODO: cache pre-allocated buffer */
-	if (!(buf.data = (stbi_uc *) malloc(msg->data.size()))) {
-		ee("failed to allocate %zu bytes", msg->data.size());
+	if (!(buf.data = (stbi_uc *) malloc(buf.size))) {
+		ee("failed to allocate %zu bytes", buf.size);
 		return;
 	}
 
 	memcpy(buf.data, msg->data.data(), msg->data.size());
 	present_buffer(&buf);
+}
+
+void ImageViewer::handle_bitmap(const bitmap_ptr msg)
+{
+	if (strcmp(msg->encoding.c_str(), "rgb8") == 0) {
+		present_rgb8(msg);
+	} else if (strcmp(msg->encoding.c_str(), "jpg") == 0) {
+		struct buffer buf = {
+			msg->data.data(),
+			msg->data.size(),
+			0,
+			0,
+			msg->header.stamp.sec,
+			msg->header.stamp.nanosec,
+		};
+		present_compressed(&buf);
+	} else {
+		ee("only rgb8 and jpg images are supported");
+		return;
+	}
 
 	if (compressed_.get()) /* do not need it anymore */
 		compressed_.reset();
@@ -225,25 +260,16 @@ void ImageViewer::handle_bitmap(const bitmap_ptr msg)
 
 void ImageViewer::handle_compressed(const compressed_ptr msg)
 {
-	int n;
-	struct buffer buf;
-	/* TODO: check if possible to decompress into pre-allocated buffer */
-	buf.data = stbi_load_from_memory(msg->data.data(), msg->data.size(),
-	 &buf.w, &buf.h, &n, 3);
-	buf.sec = msg->header.stamp.sec;
-	buf.nsec = msg->header.stamp.nanosec;
+	struct buffer buf = {
+		msg->data.data(),
+		msg->data.size(),
+		0,
+		0,
+		msg->header.stamp.sec,
+		msg->header.stamp.nanosec,
+	};
 
-	nop("format: %s, buf: %p, wh(%d %d), planes: %d", msg->format.c_str(),
-	 buf.data, buf.w, buf.h, n);
-
-	if (n != 3) { /* TODO: support other color schemes (maybe) */
-		ee("only RGB color scheme is supported");
-	} else {
-		present_buffer(&buf);
-	}
-
-	if (bitmap_.get()) /* do not need it anymore */
-		bitmap_.reset();
+	present_compressed(&buf);
 }
 
 ImageViewer::~ImageViewer()
@@ -257,7 +283,8 @@ ImageViewer::ImageViewer(const char *topic): Node(NODE_TAG)
 	compressed_ = create_compressed_subscriber(topic);
 }
 
-static void key_cb(GLFWwindow *win, int key, int code, int action, int mods)
+static void key_cb(GLFWwindow *win, int key, unused_arg(int code), int action,
+ unused_arg(int mods))
 {
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		glfwSetWindowShouldClose(win, GLFW_TRUE);
@@ -384,7 +411,6 @@ static bool make_prog(struct context *ctx)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 
-	ctx->dropped_frames = 0;
 	return true;
 }
 
@@ -416,20 +442,12 @@ static void draw_image(struct context *ctx)
 		 GL_RGB, GL_UNSIGNED_BYTE, image->data);
 		ctx->ratio = (float) image->w / image->h;
 		pthread_mutex_lock(&image->lock);
-#ifdef PRINT_FPS
-		int32_t diff = image->id - image->prev_id;
-		if (diff == 0) {
-			ww("repeat frame %u", image->id);
-		} else if (diff > 1) {
-			ctx->dropped_frames++;
-			ww("dropped %u frames", ctx->dropped_frames);
-		}
-#endif
+		if (ctx->print_fps)
+			print_fps(ctx, image);
 		image->prev_id = image->id;
 		free(image->data);
 		image->data = NULL;
 		image->state = STATE_NONE;
-		calc_fps(ctx, image);
 		pthread_mutex_unlock(&image->lock);
 	}
 
@@ -459,6 +477,13 @@ int main(int argc, char *argv[])
 	if (argc < 2 || !topic) {
 		printf("Usage: %s <topic>\n", argv[0]);
 		exit(1);
+	}
+
+	if (getenv("PRINT_FPS")) {
+		ctx.print_fps = 1;
+	} else {
+		ii("Set \033[1;33mPRINT_FPS\033[0m variable to print fps");
+		ctx.print_fps = 0;
 	}
 
 	for (uint8_t i = 0; i < ARRAY_SIZE(images_); ++i)
