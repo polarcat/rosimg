@@ -33,7 +33,7 @@ Currently viewer only works with RGB raw and compressed images (jpg, png). Other
 
  * Example for topic with uncompressed image:
 
-        ~/build> ./image-viewer /image_raw
+        ~/build> ./rosimg /image_raw
 
 ### Install (optional)
 
@@ -43,10 +43,10 @@ Currently viewer only works with RGB raw and compressed images (jpg, png). Other
 
  * Option 2
 
-        ~/build> cp -v ./image-viewer $HOME/bin/
+        ~/build> cp -v ./rosimg $HOME/bin/
 
 ### Usage
 
  * Example for topic with compressed image:
 
-        ~/> ./image-viewer /image_raw/compressed
+        ~/> rosimg /image_raw/compressed
