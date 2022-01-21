@@ -297,11 +297,13 @@ ImageViewer::ImageViewer(const char *topic): Node(NODE_TAG)
 static void key_cb(GLFWwindow *win, int key, unused_arg(int code), int action,
  unused_arg(int mods))
 {
-	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+	if (action != GLFW_PRESS)
+		return;
+	else if (key == GLFW_KEY_ESCAPE || key == GLFW_KEY_Q)
 		glfwSetWindowShouldClose(win, GLFW_TRUE);
-	else if (key == GLFW_KEY_F && action == GLFW_PRESS)
+	else if (key == GLFW_KEY_F)
 		glfwSetWindowSize(win, fit_w_, fit_h_);
-	else if (key == GLFW_KEY_S && action == GLFW_PRESS)
+	else if (key == GLFW_KEY_S)
 		saveimage_ = true;
 }
 
