@@ -10,6 +10,8 @@
 #include <GLFW/glfw3.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb/stb_image_write.h>
 
 #include <stdlib.h>
 #include <stddef.h>
@@ -122,6 +124,7 @@ struct image {
 	pthread_mutex_t lock;
 };
 
+static bool saveimage_;
 static struct image images_[2];
 static int fit_w_;
 static int fit_h_;
@@ -175,6 +178,14 @@ void ImageViewer::present_buffer(struct buffer *buf)
 	}
 	ratio_ = buf->w / (float) buf->h;
 	rratio_ = buf->h / (float) buf->w;
+
+	if (saveimage_) {
+		char name[sizeof("2147483647.jpg")];
+		snprintf(name, sizeof(name), "%ld.jpg", time(NULL));
+		stbi_write_jpg(name, buf->w, buf->h, 3, buf->data, 100);
+		saveimage_ = false;
+		ii("saved %s", name);
+	}
 
 	for (uint8_t i = 0; i < ARRAY_SIZE(images_); ++i) {
 		struct image *image = &images_[i];
@@ -290,6 +301,8 @@ static void key_cb(GLFWwindow *win, int key, unused_arg(int code), int action,
 		glfwSetWindowShouldClose(win, GLFW_TRUE);
 	else if (key == GLFW_KEY_F && action == GLFW_PRESS)
 		glfwSetWindowSize(win, fit_w_, fit_h_);
+	else if (key == GLFW_KEY_S && action == GLFW_PRESS)
+		saveimage_ = true;
 }
 
 static void error_cb(int err, const char *str)
