@@ -248,7 +248,8 @@ void ImageViewer::present_rgb8(const bitmap_ptr msg)
 
 void ImageViewer::handle_bitmap(const bitmap_ptr msg)
 {
-	if (strcmp(msg->encoding.c_str(), "rgb8") == 0) {
+	if (strcmp(msg->encoding.c_str(), "rgb8") == 0 ||
+	 strcmp(msg->encoding.c_str(), "8UC3") == 0) {
 		present_rgb8(msg);
 	} else if (strcmp(msg->encoding.c_str(), "jpg") == 0) {
 		struct buffer buf = {
@@ -261,7 +262,7 @@ void ImageViewer::handle_bitmap(const bitmap_ptr msg)
 		};
 		present_compressed(&buf);
 	} else {
-		ee("only rgb8 and jpg images are supported");
+		ee("only rgb8, 8UC3 and jpg images are supported");
 		return;
 	}
 
