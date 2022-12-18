@@ -19,7 +19,7 @@ find_package(glfw3 REQUIRED)
 
 include_directories(include)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} src/rosimg.cpp)
 target_link_libraries(${PROJECT_NAME}
 	glfw
 )
