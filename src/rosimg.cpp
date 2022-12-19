@@ -35,12 +35,6 @@
 #define NODE_TAG "imageview"
 #endif
 
-constexpr uint8_t images_max_ = 2; // image queue depth
-
-constexpr const char *image_msg_ = "sensor_msgs/msg/Image";
-constexpr const char *zimage_msg_ = "sensor_msgs/msg/CompressedImage";
-constexpr const char *zimage_fmt_ = "rgb8; jpeg compressed bgr8";
-
 using topic_info_t = std::vector<rclcpp::TopicEndpointInfo>;
 using std::placeholders::_1;
 using image_t = sensor_msgs::msg::Image;
@@ -206,6 +200,17 @@ static void print_image_info(const image_ptr image)
 	printf("\033[0m");
 }
 
+static bool validate_format(std::string *format)
+{
+	for (uint8_t i = 0; i < ARRAY_SIZE(zimage_fmt_); ++i) {
+		if (format->find(zimage_fmt_[i]) != std::string::npos)
+			return true;
+	}
+
+	ee("unsupported compressed image format '%s'\n", format->c_str());
+	return false;
+}
+
 class ImageViewer : public rclcpp::Node
 {
 public:
@@ -225,10 +230,10 @@ ImageViewer::ImageViewer(const char *topic, struct context *ctx):
 {
 	// NB: there is some delay before topic information can be retrieved
 	// from ROS2; wait some reasonable time
-	for (uint8_t i = 0; i < 10; ++i) {
+	for (uint8_t i = 0; i < 100; ++i) {
 		topic_info_t infos = get_publishers_info_by_topic(topic);
 		if (!infos.size()) {
-			usleep(10000);
+			usleep(100000);
 			continue;
 		}
 
@@ -244,6 +249,9 @@ ImageViewer::ImageViewer(const char *topic, struct context *ctx):
 			}
 		}
 	}
+
+	ww("failed to get topics, maybe next time, bye!\n");
+	exit(1);
 }
 
 ImageViewer::~ImageViewer()
@@ -276,10 +284,8 @@ void ImageViewer::handle_image(const image_ptr image)
 
 void ImageViewer::handle_zimage(const zimage_ptr zimage)
 {
-	if (zimage->format != zimage_fmt_) {
-		ee("only jpeg images are supported\n");
+	if (!validate_format(&zimage->format))
 		return;
-	}
 
 	struct image *img = get_next_image(ctx_);
 	if (ctx_->done || !img)

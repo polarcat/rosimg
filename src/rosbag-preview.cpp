@@ -40,15 +40,9 @@ using storage_options_t = rosbag2_storage::StorageOptions;
 #define WIN_HEIGHT 540
 #endif
 
-constexpr uint8_t images_max_ = 2; // image queue depth
-
 constexpr const char *storage_id_ = "sqlite3";
 constexpr const char *format_ = "cdr";
 constexpr const char *roscpp_ = "rosidl_typesupport_cpp";
-
-constexpr const char *image_msg_ = "sensor_msgs/msg/Image";
-constexpr const char *zimage_msg_ = "sensor_msgs/msg/CompressedImage";
-constexpr const char *zimage_fmt_ = "rgb8; jpeg compressed bgr8";
 
 using namespace rosbag2_cpp::converter_interfaces;
 using namespace rosbag2_cpp;
@@ -102,9 +96,9 @@ struct image {
 	int zimage_h;
 };
 
-static struct image images_[images_max_];
-
 #include "common.cpp"
+
+static struct image images_[images_max_];
 
 static void clear_image(struct image *img)
 {
@@ -235,6 +229,17 @@ static void print_image_info(struct image *img)
 	printf("\033[0m");
 }
 
+static bool validate_format(std::string *format)
+{
+	for (uint8_t i = 0; i < ARRAY_SIZE(zimage_fmt_); ++i) {
+		if (format->find(zimage_fmt_[i]) != std::string::npos)
+			return true;
+	}
+
+	ee("unsupported compressed image format '%s'\n", format->c_str());
+	return false;
+}
+
 static bool handle_image(struct reader *reader)
 {
 	struct image *img = get_next_image(reader);
@@ -313,15 +318,10 @@ static bool handle_zimage(struct reader *reader)
 		reader->print_info = false;
 	}
 
-	if (img->zimage->format == zimage_fmt_) {
-		return uncompress(reader, img);
-	} else {
-		ee("only jpeg images are supported\n");
-		clear_image(img);
+	if (!validate_format(&img->zimage->format))
 		return false;
-	}
 
-	return true;
+	return uncompress(reader, img);
 }
 
 static void rosbag_loop(struct reader *reader, const char *topic)

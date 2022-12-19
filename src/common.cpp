@@ -1,3 +1,16 @@
+constexpr uint8_t images_max_ = 2; // image queue depth
+
+constexpr const char *image_msg_ = "sensor_msgs/msg/Image";
+constexpr const char *zimage_msg_ = "sensor_msgs/msg/CompressedImage";
+
+constexpr const char *zimage_fmt_[] = {
+	"rgb8; jpeg compressed bgr8",
+	"jpg",
+	"jpeg",
+	"JPG",
+	"JPEG",
+};
+
 static const char *vsrc_ =
 	"#version 330\n"
 	"in vec2 a_pos;\n"
