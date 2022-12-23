@@ -66,6 +66,7 @@ struct context {
 	bool done{false};
 	sem_t sem;
 	bool print_info{true};
+	int fps_us{0};
 };
 
 enum class image_status : uint8_t {
@@ -187,6 +188,9 @@ static void draw_image(struct context *ctx)
 
 	glBindVertexArray(ctx->vao);
         glDrawArrays(GL_TRIANGLES, 0, 6);
+
+	if (ctx->fps_us)
+		usleep(ctx->fps_us);
 }
 
 static void print_image_info(const image_ptr image)
@@ -333,9 +337,13 @@ int main(int argc, char *argv[])
 	std::thread loop_thread;
 	const char *topic = argv[1];
 
-	if (argc < 2 || !topic) {
-		printf("Usage: %s <topic>\n", argv[0]);
+	if (argc < 2) {
+		printf("Usage: %s <topic> [fps]\n", argv[0]);
 		exit(1);
+	} else if (argc == 3) {
+		int fps = atoi(argv[2]);
+		if (fps > 0)
+			ctx.fps_us = 1000000 / fps;
 	}
 
 	if (!create_window(&ctx, topic)) {
